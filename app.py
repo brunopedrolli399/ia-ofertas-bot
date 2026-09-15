@@ -3,17 +3,42 @@ import base64
 import hashlib
 import secrets
 import requests
+import psycopg2
 from flask import Flask, request, redirect
 
 app = Flask(__name__)
 
 CLIENT_ID = os.environ.get("ML_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("ML_CLIENT_SECRET")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 REDIRECT_URI = "https://ia-ofertas-bot.onrender.com/oauth/mercadolivre/callback"
 
-# Guarda temporariamente o code_verifier
 pkce_verifier = None
+
+
+def get_db():
+    return psycopg2.connect(DATABASE_URL)
+
+
+def init_db():
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS mercadolivre_tokens (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT UNIQUE NOT NULL,
+            access_token TEXT NOT NULL,
+            refresh_token TEXT NOT NULL,
+            expires_at TIMESTAMP NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 @app.route("/")
@@ -26,10 +51,8 @@ def conectar_mercadolivre():
 
     global pkce_verifier
 
-    # Gera o code_verifier
     pkce_verifier = secrets.token_urlsafe(64)
 
-    # Gera o code_challenge
     challenge = hashlib.sha256(
         pkce_verifier.encode("utf-8")
     ).digest()
@@ -67,7 +90,6 @@ def oauth_callback():
     if not pkce_verifier:
         return "Code verifier não encontrado.", 400
 
-    # Troca o código pelo Access Token
     response = requests.post(
         "https://api.mercadolibre.com/oauth/token",
         data={
@@ -90,15 +112,48 @@ def oauth_callback():
 
     token_data = response.json()
 
-    # Não mostramos os tokens na tela
     user_id = token_data.get("user_id")
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    expires_in = token_data.get("expires_in", 21600)
 
-    # Limpa o verifier depois da utilização
+    if not user_id or not access_token or not refresh_token:
+        return "Dados de autenticação incompletos.", 400
+
+    from datetime import datetime, timedelta
+
+    expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        INSERT INTO mercadolivre_tokens
+        (user_id, access_token, refresh_token, expires_at)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id)
+        DO UPDATE SET
+            access_token = EXCLUDED.access_token,
+            refresh_token = EXCLUDED.refresh_token,
+            expires_at = EXCLUDED.expires_at,
+            updated_at = CURRENT_TIMESTAMP
+    """, (
+        user_id,
+        access_token,
+        refresh_token,
+        expires_at
+    ))
+
+    conn.commit()
+    cur.close()
+    conn.close()
+
     pkce_verifier = None
 
     return (
         "<h1>IA OFERTAS</h1>"
         "<p>Mercado Livre conectado com sucesso!</p>"
+        "<p>Tokens armazenados com segurança.</p>"
         f"<p>Usuário conectado: {user_id}</p>"
     )
 
@@ -111,6 +166,9 @@ def mercadolivre_webhook():
     print("Notificação recebida:", data)
 
     return "OK", 200
+
+
+init_db()
 
 
 if __name__ == "__main__":
