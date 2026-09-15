@@ -6,6 +6,7 @@ app = Flask(__name__)
 
 CLIENT_ID = os.environ.get("ML_CLIENT_ID")
 CLIENT_SECRET = os.environ.get("ML_CLIENT_SECRET")
+
 REDIRECT_URI = "https://ia-ofertas-bot.onrender.com/oauth/mercadolivre/callback"
 
 
@@ -20,13 +21,15 @@ def oauth_callback():
     code = request.args.get("code")
     error = request.args.get("error")
 
+    # Se o Mercado Livre retornar erro
     if error:
         return f"Erro na autorização: {error}", 400
 
+    # Verifica se recebeu o código
     if not code:
         return "Código de autorização não recebido.", 400
 
-    # Troca o código de autorização pelo Access Token
+    # Troca o código pelo Access Token
     response = requests.post(
         "https://api.mercadolibre.com/oauth/token",
         data={
@@ -39,15 +42,17 @@ def oauth_callback():
         timeout=15
     )
 
+    # Se o Mercado Livre rejeitar a troca
     if response.status_code != 200:
         return (
-            "Erro ao obter Access Token.<br><br>"
-            + response.text
+            "<h1>IA OFERTAS</h1>"
+            "<p>Erro ao obter Access Token.</p>"
+            f"<pre>{response.text}</pre>"
         ), 400
 
     token_data = response.json()
 
-    # NÃO mostramos os tokens na tela
+    # Não mostramos os tokens na tela
     user_id = token_data.get("user_id")
 
     return (
@@ -69,3 +74,4 @@ def mercadolivre_webhook():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=10000)
+
