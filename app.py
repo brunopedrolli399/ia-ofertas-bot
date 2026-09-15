@@ -117,8 +117,14 @@ def oauth_callback():
     refresh_token = token_data.get("refresh_token")
     expires_in = token_data.get("expires_in", 21600)
 
-    if not user_id or not access_token or not refresh_token:
-        return "Dados de autenticação incompletos.", 400
+  if not user_id or not access_token or not refresh_token:
+    campos = list(token_data.keys())
+
+    return (
+        "<h1>IA OFERTAS</h1>"
+        "<p>Resposta recebida do Mercado Livre.</p>"
+        f"<p>Campos recebidos: {campos}</p>"
+    ), 400
 
     from datetime import datetime, timedelta
 
