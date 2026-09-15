@@ -4,6 +4,7 @@ import hashlib
 import secrets
 import requests
 import psycopg2
+from datetime import datetime, timedelta
 from flask import Flask, request, redirect
 
 app = Flask(__name__)
@@ -48,7 +49,6 @@ def home():
 
 @app.route("/conectar/mercadolivre")
 def conectar_mercadolivre():
-
     global pkce_verifier
 
     pkce_verifier = secrets.token_urlsafe(64)
@@ -75,7 +75,6 @@ def conectar_mercadolivre():
 
 @app.route("/oauth/mercadolivre/callback")
 def oauth_callback():
-
     global pkce_verifier
 
     code = request.args.get("code")
@@ -117,16 +116,14 @@ def oauth_callback():
     refresh_token = token_data.get("refresh_token")
     expires_in = token_data.get("expires_in", 21600)
 
-  if not user_id or not access_token or not refresh_token:
-    campos = list(token_data.keys())
+    if not user_id or not access_token or not refresh_token:
+        campos = list(token_data.keys())
 
-    return (
-        "<h1>IA OFERTAS</h1>"
-        "<p>Resposta recebida do Mercado Livre.</p>"
-        f"<p>Campos recebidos: {campos}</p>"
-    ), 400
-
-    from datetime import datetime, timedelta
+        return (
+            "<h1>IA OFERTAS</h1>"
+            "<p>Resposta recebida do Mercado Livre.</p>"
+            f"<p>Campos recebidos: {campos}</p>"
+        ), 400
 
     expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
 
@@ -166,7 +163,6 @@ def oauth_callback():
 
 @app.route("/webhook/mercadolivre", methods=["POST"])
 def mercadolivre_webhook():
-
     data = request.get_json(silent=True)
 
     print("Notificação recebida:", data)
