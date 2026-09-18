@@ -42,6 +42,115 @@ def init_db():
     conn.close()
 
 
+def refresh_mercadolivre_token(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT refresh_token
+        FROM mercadolivre_tokens
+        WHERE user_id = %s
+    """, (user_id,))
+
+    result = cur.fetchone()
+
+    if not result:
+        cur.close()
+        conn.close()
+        return None
+
+    refresh_token = result[0]
+
+    response = requests.post(
+        "https://api.mercadolibre.com/oauth/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+            "refresh_token": refresh_token
+        },
+        timeout=15
+    )
+
+    if response.status_code != 200:
+        print("Erro ao renovar token:", response.text)
+
+        cur.close()
+        conn.close()
+
+        return None
+
+    token_data = response.json()
+
+    new_access_token = token_data.get("access_token")
+    new_refresh_token = token_data.get("refresh_token")
+    expires_in = token_data.get("expires_in", 21600)
+
+    if not new_access_token or not new_refresh_token:
+        print("Resposta de renovação sem tokens necessários.")
+
+        cur.close()
+        conn.close()
+
+        return None
+
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=expires_in
+    )
+
+    cur.execute("""
+        UPDATE mercadolivre_tokens
+        SET
+            access_token = %s,
+            refresh_token = %s,
+            expires_at = %s,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = %s
+    """, (
+        new_access_token,
+        new_refresh_token,
+        expires_at,
+        user_id
+    ))
+
+    conn.commit()
+
+    cur.close()
+    conn.close()
+
+    print("Access Token renovado com sucesso para o usuário:", user_id)
+
+    return new_access_token
+
+
+def get_valid_access_token(user_id):
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT access_token, refresh_token, expires_at
+        FROM mercadolivre_tokens
+        WHERE user_id = %s
+    """, (user_id,))
+
+    result = cur.fetchone()
+
+    cur.close()
+    conn.close()
+
+    if not result:
+        return None
+
+    access_token, refresh_token, expires_at = result
+
+    if datetime.utcnow() < expires_at:
+        return access_token
+
+    print("Access Token expirado. Renovando...")
+
+    return refresh_mercadolivre_token(user_id)
+
+
 @app.route("/")
 def home():
     return "IA OFERTAS - servidor online!"
@@ -125,7 +234,9 @@ def oauth_callback():
             f"<p>Campos recebidos: {campos}</p>"
         ), 400
 
-    expires_at = datetime.utcnow() + timedelta(seconds=expires_in)
+    expires_at = datetime.utcnow() + timedelta(
+        seconds=expires_in
+    )
 
     conn = get_db()
     cur = conn.cursor()
@@ -148,6 +259,7 @@ def oauth_callback():
     ))
 
     conn.commit()
+
     cur.close()
     conn.close()
 
@@ -158,6 +270,23 @@ def oauth_callback():
         "<p>Mercado Livre conectado com sucesso!</p>"
         "<p>Tokens armazenados com segurança.</p>"
         f"<p>Usuário conectado: {user_id}</p>"
+    )
+
+
+@app.route("/testar/token/<user_id>")
+def testar_token(user_id):
+    access_token = get_valid_access_token(user_id)
+
+    if not access_token:
+        return (
+            "<h1>IA OFERTAS</h1>"
+            "<p>Não foi possível obter um Access Token válido.</p>"
+        ), 400
+
+    return (
+        "<h1>IA OFERTAS</h1>"
+        "<p>Access Token válido.</p>"
+        "<p>O sistema conseguiu acessar o token armazenado.</p>"
     )
 
 
@@ -174,4 +303,7 @@ init_db()
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    app.run(
+        host="0.0.0.0",
+        port=10000
+    )
